@@ -1,0 +1,103 @@
+FEDORA VFIO STEWARD – FULL IMPLEMENTATION GUIDE
+
+PHILOSOPHY
+----------
+Fedora is the steward host. It must always boot, remain predictable, and be recoverable.
+Windows is a contained guest. Performance is secondary to correctness and reversibility.
+
+This guide intentionally avoids:
+- CPU pinning
+- ACS overrides
+- Host NVIDIA drivers
+- Experimental kernels
+- Scheduler tuning
+
+---------------------------------
+SECTION 1: FEDORA INSTALL (HOST)
+---------------------------------
+
+1. Install Fedora Workstation using the provided Kickstart file.
+2. Verify Fedora boots cleanly using the host GPU.
+3. Confirm SELinux is enforcing:
+   getenforce
+4. Confirm libvirt is installed and running:
+   systemctl status libvirtd
+5. Confirm your user is in the libvirt group:
+   groups
+
+---------------------------------
+SECTION 2: PRE-VFIO SAFETY CHECKS
+---------------------------------
+
+1. Enable SSH for emergency access:
+   sudo systemctl enable --now sshd
+
+2. Inspect IOMMU groups BEFORE binding anything:
+   find /sys/kernel/iommu_groups/ -type l
+
+3. Confirm the passthrough GPU and its audio function are isolated.
+
+If the GPU shares a group with USB, SATA, or chipset devices, STOP.
+
+---------------------------------
+SECTION 3: ENABLE IOMMU AND VFIO
+---------------------------------
+
+1. Identify GPU PCI IDs:
+   lspci -nn | grep -i nvidia
+
+2. Add kernel arguments using grubby:
+   sudo grubby --update-kernel=ALL --args="amd_iommu=on iommu=pt rd.driver.pre=vfio-pci vfio-pci.ids=XXXX:YYYY,XXXX:ZZZZ"
+
+3. Reboot.
+
+4. Verify vfio-pci is bound:
+   lspci -k | grep -A3 -i nvidia
+
+---------------------------------
+SECTION 4: CREATE WINDOWS VM
+---------------------------------
+
+1. Open virt-manager.
+2. Create new VM using local install media.
+3. Customize before install.
+4. Set:
+   - Firmware: OVMF (UEFI)
+   - Machine type: Q35
+   - CPU mode: host-passthrough
+   - Storage: VirtIO
+   - Network: VirtIO
+
+5. Attach VirtIO driver ISO.
+
+---------------------------------
+SECTION 5: GPU PASSTHROUGH
+---------------------------------
+
+1. Shut down VM.
+2. Add PCI Host Devices:
+   - GPU VGA function
+   - GPU Audio function
+
+3. Boot VM.
+4. Install NVIDIA drivers inside Windows.
+
+---------------------------------
+SECTION 6: SNAPSHOTS AND HARDENING
+---------------------------------
+
+1. Take a clean baseline VM snapshot.
+2. Harden Windows:
+   - Remove UWP apps
+   - Deprovision removed apps
+   - Remove Copilot
+   - Disable/remove Recall
+3. Retain scripts for reapplication.
+
+---------------------------------
+SECTION 7: OPERATING DISCIPLINE
+---------------------------------
+
+- One risky change per reboot.
+- Snapshot before major changes.
+- Roll back instead of improvising.
